@@ -241,4 +241,394 @@ ADD指令有两种形式：
 ADD指令从<src>复制新文件、目录或远程文件URL，并将其添加到路径<dest>的镜像文件系统中。
 可以指定多个<src>资源，但如果它们是文件或目录，那么它们的路径被解释为相对于构建上下文的资源。
 每个<src>可能包含通配符，匹配将使用Go的filepath.Match(https://golang.org/pkg/path/filepath#Match)规则完成。例如，要添加以hom开头的所有文件：
+![](./image/2026-11-07-16-39-24.png)
+在下面的示例中，?可被替换为任何单个字符，例如e，即home.txt：
+![](./image/2026-11-07-16-39-42.png)
+<dest>是一个绝对路径，或相对于WORKDIR的路径，源将被复制到目标容器中。下面的示例使用相对路径，并将test.txt添加到<WORKDIR>/relativeDir/中：
+![](./image/2026-11-07-16-40-00.png)
+而下面这个示例使用绝对路径，并将test.txt添加到/absoluteDir/：
+![](./image/2026-11-07-16-40-19.png)
+当添加包含特殊字符（如[和]​）的文件或目录时，需要按照Golang规则转义这些路径，以防止它们被视为匹配模式。例如，要添加名为arr[0].txt的文件，请使用以下内容：
+![](./image/2026-11-07-16-40-40.png)
+所有新文件和目录都是以UID和GID为0创建的，除非使用可选的--chown标志指定用户名、组名或UID/GID组合。--chown标志允许使用用户名和组名字符串或整数UID和GID的组合。
+提供没有组名的用户名或没有GID的UID将使用与GID相同的数字UID。如果提供了用户名或组名，容器的根文件系统/etc/passwd和/etc/group文件将执行从名称到整数UID或GID的转换。以下示例显示了--chown标志的有效定义：
+![](./image/2026-11-07-16-41-17.png)
+如果容器根文件系统不包含/etc/passwd或/etc/group文件，并且在--chown中使用了用户名或组名，那么在ADD操作中构建将失败。使用数字ID不需要查找，也不会依赖于容器根文件系统内容。
+如果<src>是远程文件URL，则目标权限为600。如果正在检索的远程文件具有HTTP Last-Modified标头，则该标头的时间戳将用于设置目标文件上的mtime。
+如果通过STDIN(docker build-< somefile)传递Dockerfile进行构建，则没有构建上下文，因此Dockerfile只能包含基于URL的ADD指令。还可以通过STDIN传递压缩存档：(docker build-< archive.tar.gz)，压缩文件根目录的Dockerfile和存档的其余部分将用作构建的上下文。
+如果URL文件需要身份验证，则可使用RUN wget、RUN curl或容器内的其他工具，因为ADD指令不支持身份验证。
+如果<src>的内容发生变化，第一个遇到的ADD指令将使Dockerfile中所有后续指令的缓存无效。
+ADD指令遵循以下规则：
+❑ <src>路径必须在构建的上下文中；不能使用ADD../something/something，因为执行docker build时的第一步是将上下文目录（和子目录）发送到Docker守护进程。
+❑ 如果<src>是一个URL，而<dest>没有尾随斜杠，则从URL下载文件并将文件复制到<dest>。
+❑ 如果<src>是一个URL，而<dest>确实尾随斜杠，则从URL推断文件名，并将文件下载到<dest>/<filename>。例如，ADD http://example.com/foobar/将创建文件/foobar 。URL必须有一个包含文件的路径（http://example.com这种路径就不行）​。
+❑ 如果<src>是一个目录，则复制目录的全部内容，包括文件系统元数据。注意，只复制目录内的内容，不复制目录本身。
+❑ 如果<src>是可识别压缩格式（identity、gzip、bzip2或xz）的本地tar存档，则将其解压缩为目录。来自远程URL的资源不会被解压缩。当目录被复制或解压缩时，它具有与tar-x相同的行为。文件是否被识别为可识别的压缩格式完全基于文件的内容，而不是文件的名称。例如，如果空文件碰巧以.tar.gz结尾，则不会被识别为压缩文件，也不会生成任何类型的解压缩错误消息，而是将文件简单地复制到目标。
+❑ 如果<src>是其他类型的文件，则将该文件与其元数据一起单独复制。在这种情况下，如果<dest>尾随斜杠/，那么它将被视为一个目录，<src>的内容将写在<dest>/base(<src>)。
+❑ 如果直接或由于使用通配符而指定了多个<src>资源，那么<dest>必须是一个目录，并且它必须以斜杠/结尾。
+❑ 如果<dest>没有以斜杠结尾，那么它将被视为常规文件，<src>的内容将写在<dest>。
+❑ 如果<dest>不存在，那么它将与其路径中所有缺失的目录一起被创建。
+**1.验证远程文件的校验和**
+可以使用--checksum标志验证远程文件的校验和，格式为ADD--checksum=<checksum><http src><dest>。下面给出示例：
+![](./image/2026-11-07-16-43-30.png)
+--checksum标志目前仅支持HTTP源。
+**2.添加Git存储库**
+ADD命令可以将Git存储库添加到镜像中，而无须在图像中使用git命令。命令格式为ADD<git ref><dir>。下面给出示例：
+![](./image/2026-11-07-16-48-17.png)
+--keep-git-dir=true标志添加了.git目录，此标志默认为false。
+**3.添加私有Git存储库**
+若需要使用ssh添加私有Git存储库，可以使用以下形式创建Dockerfile：
+![](./image/2026-11-07-16-48-55.png)
+此Dockerfile可以使用docker build--ssh或buildctl build--ssh构建，例如：
+![](./image/2026-11-07-16-49-13.png)
 
+### 8.2.14 COPY
+COPY指令有两种形式：
+![](./image/2026-11-07-16-49-44.png)
+包含空格的路径需要使用后一种形式。
+--chown和--chmod功能仅在用于构建Linux容器的Dockerfile上受到支持，在Windows容器上不起作用。由于用户和组所有权概念不会在Linux和Windows之间转换，因此使用/etc/passwd和/etc/group分别将用户名和组名转换为ID限制了此功能仅对基于Linux操作系统的容器有效。
+COPY指令从<src>复制新文件或目录，并将其添加到路径<dest>的容器文件系统中。
+可以指定多个<src>资源，但文件和目录的路径将被解释为相对于构建上下文的资源。
+<src>可能包含通配符，匹配将使用Go的filepath.Match(https://golang.org/pkg/path/filepath#Match)规则完成。例如，要添加以hom开头的所有文件：
+![](./image/2026-11-07-16-56-19.png)
+在下面的示例中，​？可以被替换为任意单个字符，例如，将？替换成e，即home.txt：
+![](./image/2026-11-07-16-56-36.png)
+<dest>是一个绝对路径，或相对于WORKDIR的路径，源将被复制到目标容器中。
+下面的示例使用相对路径，并将test.txt添加到<WORKDIR>/relativeDir/中：
+![](./image/2026-11-07-16-57-00.png)
+而下面这个示例使用绝对路径，并将test.txt添加到/absoluteDir/：
+![](./image/2026-11-07-16-57-51.png)
+复制包含特殊字符（如[和]​）的文件或目录时，需要按照Golang规则转义这些路径，以防止它们被视为匹配模式。例如，要复制名为arr[0].txt的文件，使用以下内容：
+![](./image/2026-11-07-16-58-08.png)
+所有新文件和目录的UID和GID为0，除非可选的--chown标志指定用户名、组名或UID/GID组合。
+--chown标志允许使用用户名和组名字符串或整数UID和GID的组合。当提供了没有组名的用户名或没有GID的UID时将使用与GID相同的数字UID。如果提供了用户名或组名，容器的根文件系统/etc/passwd和/etc/group文件将执行从名称到整数UID或GID的转换。
+以下示例显示了--chown标志的有效定义：
+![](./image/2026-11-07-16-58-38.png)
+如果容器根文件系统不包含/etc/passwd或/etc/group文件，并且在--chown中使用用户名或组名，则在COPY操作中构建将失败。使用数字ID不需要查找，也不依赖于容器根文件系统内容。
+如果使用STDIN(docker build-< somefile)构建，则没有构建上下文，因此无法使用COPY指令。使用COPY--from=<name>可以从其他构建阶段继承构建成果。COPY指令遵循以下规则：
+❑ <src>路径必须在构建的上下文中；无法使用COPY../something/something，因为执行docker build时的第一步是将上下文目录（和子目录）发送到Docker守护进程。
+❑ 如果<src>是一个目录，则复制目录的全部内容，包括文件系统元数据。注意，只复制目录内的内容，不复制目录本身。
+❑ 如果<src>是其他类型的文件，则将它与它的元数据一起单独复制。在这种情况下，如果<dest>尾随斜杠/，那么它将被视为一个目录，<src>的内容将写在<dest>/base(<src>)。
+❑ 如果直接或由于使用通配符而指定了多个<src>资源，那么<dest>必须是一个目录，并且它必须以斜杠/结尾。
+❑ 如果<dest>没有以斜杠结尾，那么它将被视为常规文件，<src>的内容将写在<dest>。
+❑ 如果<dest>不存在，它将与其路径中所有缺失的目录一起创建。
+❑ 如果<src>的内容发生变化，那么第一次遇到的COPY指令将使Dockerfile中后续指令缓存无效。
+
+### 8.2.15 COPY/ADD--link
+在COPY或ADD指令中启用此标志允许复制具有增强语义的文件，可使文件在自己的层上保持独立，即使上层构建发生改变时也不会失效：
+![](./image/2026-11-07-17-15-50.png)
+这相当于做两个构建：
+![](./image/2026-11-07-17-16-09.png)
+和
+![](./image/2026-11-07-17-16-26.png)
+并将两个镜像的所有层合并在一起。
+**使用--link的好处**
+使用--link可在后续构建中使用--cache-from重用已构建的层，即使之前的层已更改。这对于多阶段构建尤为重要，如果不使用--link，那么同一阶段的任何前置命令发生变化，使用COPY--from时都需要重建中间阶段。如果使用--link，那么上一个构建生成的层可以被重用并合并到新层的顶部。这意味着，当需要更新基础镜像时，可以轻松地重新调整镜像的基底，而无须再次执行整个构建。在支持它的后端，BuildKit可以执行此变基操作，而无须在客户端和镜像仓库之间推送或拉取任何层。BuildKit将检测这种情况，并仅创建包含正确顺序的镜像清单。
+使用--link时，COPY/ADD指令不允许读取前置构建阶段的任何文件。当不需要使用前置构建阶段的内容时，建议使用--link来改进构建性能。
+### 8.2.16 ENTRYPOINT
+ENTRYPOINT用于配置容器的启动进程，格式为ENTRYPOINT command param1param2...。该指令有两种形式，即exec形式和shell形式。exec形式是首选形式，格式如下所示：
+![](./image/2026-11-07-17-17-52.png)
+shell形式的格式如下所示：
+![](./image/2026-11-07-17-18-11.png)
+例如，以下命令表示在容器启动时启动镜像配置的默认内容，并在80端口上监听：
+```shell
+docker run -i -t --rm -p 80:80 nginx
+```
+docker run<image>的命令行参数将附加在exec形式ENTRYPOINT中的所有元素之后，并将覆盖使用CMD指定的所有元素。这允许将参数传递给入口点，即dockerrun<image>-d将把-d参数传递给入口点。可以使用docker run--entrypoint标志覆盖ENTRYPOINT指令。
+shell形式可以防止使用任何CMD或run命令行参数，但缺点是ENTRYPOINT将作为/bin/sh-c的子命令启动，该命令不会传递信号。这意味着可执行文件不会是容器的PID 1，也不会接收UNIX信号，因此可执行文件不会从docker stop<container>接收SIGTERM。
+只有Dockerfile中的最后一个ENTRYPOINT指令才会产生影响。
+**1.exec形式ENTRYPOINT示例**
+可以使用ENTRYPOINT的exec形式来设置相对稳定的默认命令和参数，然后使用任何一种形式的CMD来设置更有可能更改的其他默认值：
+![](./image/2026-11-07-17-21-32.png)
+当运行容器时，可以看到top是唯一进程：
+![](./image/2026-11-07-17-22-04.png)
+要进一步检查结果，可以使用docker exec：
+![](./image/2026-11-07-17-22-21.png)
+可以使用docker stop test优雅地请求top关闭。
+以下Dockerfile显示了使用ENTRYPOINT在前台运行Apache（即作为PID 1）​：
+![](./image/2026-11-07-17-22-43.png)
+如果需要为单个可执行文件编写启动脚本，可以使用exec和gosu命令确保最终可执行文件接收UNIX信号：
+![](./image/2026-11-07-17-23-02.png)
+![](./image/2026-11-07-17-23-17.png)
+最后，如果在关机时需要进行一些额外的清理（或与其他容器通信）​，或者正在协调多个可执行文件，可能需要确保ENTRYPOINT脚本接收UNIX信号，就传递它们，然后做更多工作：
+![](./image/2026-11-07-17-23-40.png)
+如果使用docker run-it--rm-p 80:80--name test apache运行此镜像，则可以使用docker exec或docker top检查容器的进程，然后要求脚本停止Apache：
+![](./image/2026-11-07-17-24-09.png)
+![](./image/2026-11-07-17-24-20.png)
+可以使用--entrypoint覆盖ENTRYPOINT设置，但这只能将二进制文件设置为exec形式（不使用sh-c）​。
+与shell形式不同，exec形式不会调用命令shell，这意味着正常的shell处理不会发生。例如，ENTRYPOINT["echo","$HOME"]不会对$HOME进行变量替换。如果想要进行shell处理，请直接使用shell形式或executea shell。再例如ENTRYPOINT["sh","-c","echo $HOME"]​。当使用exec形式并直接执行shell时，就像shell形式的情况一样，是shell在做环境变量扩展，而不是docker。
+**2.shell形式ENTRYPOINT示例**
+可以为ENTRYPOINT指定一个普通字符串，它将在/bin/sh-c中执行，使用shell处理来替换shell环境变量，并将忽略任何CMD或docker run命令行参数。为了确保docker stop正确地向长时间运行的ENTRYPOINT执行文件发出信号，需要使用exec启动它：
+![](./image/2026-11-07-17-25-18.png)
+当运行此镜像时，将看到单个PID 1进程：
+![](./image/2026-11-07-17-25-36.png)
+使用docker stop可以优雅地停止容器：
+![](./image/2026-11-07-17-26-03.png)
+如果忘记在ENTRYPOINT的开头添加exec，那么将从top的输出中看到，指定的ENTRYPOINT不是PID 1，如下所示：
+![](./image/2026-11-07-17-26-20.png)
+![](./image/2026-11-07-17-26-34.png)
+如果随后运行docker stop test，那么容器将无法干净地退出。stop命令将在超时后被迫发送SIGKILL：
+![](./image/2026-11-07-17-26-53.png)
+**3.CMD和ENTRYPOINT如何相互作用**
+CMD和ENTRYPOINT指令都定义了运行容器时执行的命令，下面是使用它们时需要注意的几条规则：
+❑ Dockerfile应指定至少一个CMD或ENTRYPOINT指令。
+❑ 创建可执行容器时，应该定义ENTRYPOINT。
+❑ CMD应该用作定义ENTRYPOINT指令的默认参数或在容器中执行临时命令的一种方式。
+❑ 使用替代参数运行容器时会把CMD定义的内容重写。
+表8-9显示了不同的ENTRYPOINT/CMD组合执行的命令。
+
+表8-9　不同的ENTRYPOINT/CMD组合执行的命令
+![](./image/2026-11-07-17-28-37.png)
+如果在基础镜像定义了CMD，那么设置ENTRYPOINT将使CMD重置为空值。
+
+### 8.2.17 VOLUME
+VOLUME指令用于创建一个具有指定名称的挂载点，并将其标记为持有来自本机或其他容器的外部挂载卷。语法格式如下：
+![](./image/2026-11-07-17-31-01.png)
+值可以是JSON数组、VOLUME["/var/log/"]​，也可以是具有多个参数的普通字符串，例如VOLUME/var/log或VOLUME/var/log/var/db。
+docker run命令使用镜像中指定位置存在的任意数据初始化新创建的卷。例如：
+![](./image/2026-11-07-17-31-24.png)
+此Dockerfile创建一个镜像，执行docker run时将在/myvol创建新的挂载点，并将greeting文件复制到新创建的卷中。
+### 8.2.18 关于指定卷的注意事项
+关于Dockerfile中的卷，请记住以下几点。
+❑ 基于Windows容器上的卷：当使用基于Windows的容器时，容器内卷的目的地必须是一个不存在的或空的目录，不能是C:盘。
+❑ 从Dockerfile中更改卷：如果有任何构建步骤在声明后更改卷内的数据，那么这些更改将被丢弃。
+❑ JSON格式：列表被解析为JSON数组。必须对单词使用双引号(")而不是单引号(')。
+主机目录在容器运行时声明：主机目录（挂载点）本质上依赖于主机，这是为了保持镜像可移植性，因为不能保证给定的主机目录在所有主机上都可用。因此，无法从Dockerfile中挂载主机目录。VOLUME指令不支持指定host-dir参数。在创建或运行容器时，必须指定挂载点。
+### 8.2.19 USER
+USER指令用于设置用户名（或UID）和可选的用户组（或GID）作为当前阶段的默认用户和组。指定用于执行RUN指令的用户，并在运行时运行相关的ENTRYPOINT和CMD指令。语法格式如下：
+![](./image/2026-11-07-17-32-50.png)
+请注意，当为用户指定组时，用户将仅拥有指定的组成员资格。任何其他已配置的组成员资格都将被忽略。当用户没有组时，镜像（或下一个指令）将使用root组运行。
+在Windows上，如果用户不是内置账户，则必须先创建账户。这可以通过在Dockerfile中调用net user命令来完成：
+![](./image/2026-11-07-17-35-26.png)
+### 8.2.20 WORKDIR
+WORKDIR指令为Dockerfile中RUN、CMD、ENTRYPOINT、COPY和ADD指令设置工作目录。如果WORKDIR不存在，即使它没有在Dockerfile任何后续指令中使用，也会被创建。语法格式如下：
+![](./image/2026-11-07-17-36-10.png)
+WORKDIR指令可以在Dockerfile中多次使用。如果提供了相对路径，它将相对于上一个WORKDIR指令的路径。例如：
+![](./image/2026-11-07-17-36-26.png)
+此Dockerfile中最终pwd命令的输出为/a/b/c。
+WORKDIR指令可以解析之前使用ENV设置的环境变量。它只能使用Dockerfile中显式设置的环境变量。例如：
+![](./image/2026-11-07-17-36-51.png)
+在此Dockerfile中，pwd命令的最终输出将是/path/$DIRNAME。如果没有指定，那么默认工作目录是/。在实践中，如果没有从头开始构建Dockerfile，WORKDIR可能由正在使用的基础镜像设置。因此，为了避免在未知目录中进行意外操作，最佳做法是显式地设置WORKDIR。
+### 8.2.21 ARG
+ARG指令定义了一个变量，用户可以在构建时通过docker build命令使用--build-arg<varname>=<value>标志将其传递给构建器。如果用户指定了未在Dockerfile中定义的构建参数，则将输出警告。语法格式如下：
+![](./image/2026-11-07-17-38-54.png)
+Dockerfile可能包含一个或多个ARG指令。例如，以下是有效的Dockerfile：
+![](./image/2026-11-07-17-39-09.png)
+不建议使用ARG变量来传递GitHub密钥、用户凭据等信息，因为使用dockerhistory命令，镜像的任何用户都可以看到构建时的变量值。
+请参阅RUN--mount=type=secret部分，了解在构建镜像时使用密钥的安全方法。
+ **1.默认值**
+ ARG指令可以选择包含一个默认值：
+ ![](./image/2026-11-07-18-13-14.png)
+ 如果ARG指令具有默认值，并且在构建时没有传递值，则构建器使用默认值。
+ **2.范围**
+ ARG变量定义是从Dockerfile中定义的行开始生效的，而不是在命令行或其他地方使用时生效。例如：
+ ![](./image/2026-11-07-18-13-48.png)
+ 用户通过调用来构建此文件：
+ ```shell
+ docker build --build-ag username=what_user
+ ```
+ 在上述示例中：
+ 第2行的USER值是some_user，因为username变量在第3行中才定义。
+ 第4行的USER值是what_user，因为第3行定义了username参数，并在命令行上传递了what_user值。在ARG指令定义之前，任何对变量的使用都会导致空字符串。
+ ARG变量在定义它的构建阶段结束时结束，因此要在多个阶段使用参数，每个阶段必须包括ARG指令：
+ ![](./image/2026-11-07-18-17-25.png)
+** 3.指定RUN指令可用的变量**
+ 使用ARG或ENV指令来指定RUN指令可用的变量。使用ENV指令定义的环境变量总是覆盖同名的ARG变量。例如：
+ ![](./image/2026-11-07-18-20-42.png)
+ **3.指定RUN指令可用的变量**
+ 使用ARG或ENV指令来指定RUN指令可用的变量。使用ENV指令定义的环境变量总是覆盖同名的ARG变量。例如：
+ ![](./image/2026-11-07-19-18-12.png)
+ 然后，假设此镜像是使用以下命令构建的：
+ ```shell
+ docker build --build-arg username=what_user .
+ ```
+ 在上述示例中：
+ 第2行的USER值是some_user，因为username变量在第3行中才定义。
+ 第4行的USER值是what_user，因为第3行定义了username参数，并在命令行上传递了what_user值。在ARG指令定义之前，任何对变量的使用都会导致空字符串。
+ ARG变量在定义它的构建阶段结束时结束，因此要在多个阶段使用参数，每个阶段必须包括ARG指令：
+ ![](./image/2026-11-07-19-48-15.png)
+**3.指定RUN指令可用的变量**
+使用ARG或ENV指令来指定RUN指令可用的变量。使用ENV指令定义的环境变量总是覆盖同名的ARG变量。例如：
+![](./image/2026-11-07-19-49-09.png)
+然后，假设此镜像是使用以下命令构建的：
+```shell
+docker build --build-arg CONT_IMG_VER=v2.0.1 .
+```
+在这种情况下，RUN指令使用v1.0.0而不是用户传递的ARG设置。
+使用上面的示例，但使用不同的ENV规范，可以在ARG和ENV指令之间创建更有用的交互：
+![](./image/2026-11-07-19-52-05.png)
+与ARG指令不同，ENV值始终保留在构建的镜像中。下面是一个没有--build-arg标志的Docker构建：
+![](./image/2026-11-07-19-53-50.png)
+使用此Dockerfile示例，CONT_IMG_VER仍保留在镜像中，但它的值将是v1.0.0，因为它是ENV指令在第3行设置的默认值。
+本示例中允许用户从命令行传递参数，并通过利用ENV指令将它们保留在最终镜像中。
+**4.预定义的ARG变量**
+Docker有一组预定义的ARG变量，可以在Dockerfile没有相应的ARG指令的情况下使用：HTTP_PROXY、http_proxy、HTTPS_PROXY、https_proxy、FTP_PROXY、ftp_proxy、NO_PROXY、no_proxy、ALL_PROXY或all_proxy。要使用这些变量，可使用--build-arg标志在命令行上传递它们，例如：
+```shell
+docker build --build-arg HTTPS_PROXY=https://my-proxy.example.com .
+```
+默认情况下，这些预定义的变量被排除在docker history的输出之外。排除它们可以降低在HTTP_PROXY变量中意外泄露敏感身份验证信息的风险。例如，使用以下Dockerfile构建--build-argHTTP_PROXY=http://user:pass@proxy.lon.example.com：
+![](./image/2026-11-07-20-05-23.png)
+在这种情况下，HTTP_PROXY变量的值在docker history中不可用，也没有缓存。 如果要更改位置，并且将代理服务器更改为http://user:pass@proxy.sfo.example.com，则后续构建不会导致缓存丢失。
+如果需要覆盖此行为，则可以通过在Dockerfile中添加ARG语句来执行以下操作：
+![](./image/2026-11-07-20-05-47.png)
+构建此Dockerfile时，HTTP_PROXY保留在docker history中，更改其值会使构建缓存无效。
+**5.全局范围内的自动平台ARG**
+此功能仅在使用BuildKit后端时可用。Docker预定义了一组ARG变量，其中包含执行构建的节点平台（构建平台）和结果镜像平台（目标平台）的信息。可以在docker build上使用--platform标志指定目标平台。
+自动设置的ARG变量如下：
+❑ TARGETPLATFORM：构建目标平台，例如，linux/amd64、linux/arm/v7、windows/amd64。
+❑ TARGETOS：目标平台的操作系统。
+❑ TARGETARCH：目标平台的芯片构架。
+❑ TARGETVARIANT：目标平台的变量。
+❑ BUILDPLATFORM：执行构建的节点平台。
+❑ BUILDOS：构建节点的操作系统。
+❑ BUILDARCH：构建节点的芯片架构。
+❑ BUILDVARIANT：构建节点的变量。
+这些参数是在全局范围内定义的，因此在构建阶段或在RUN命令中不会自动可用。为了在构建阶段暴露这些参数之一，可以直接重新定义它。例如：
+![](./image/2026-11-07-20-08-49.png)
+**6.BuildKit内置的args**
+BuildKit内置的参数如表8-10所示。
+
+表8-10　BuildKit内置的参数
+![](./image/2026-11-07-20-09-22.png)
+**示例：保留.git目录**
+在使用git上下文时，执行git checkout是默认不包含.git目录的，但是如果在构建时需要用到git相关信息，则可以选择保留.git目录：
+![](./image/2026-11-07-20-10-22.png)
+**7.对构建缓存的影响**
+ARG变量不会像ENV变量那样持久化到最终镜像中。然而，ARG变量确实以类似的方式影响构建缓存。如果Dockerfile定义了一个ARG变量，其值与以前的构建不同，那么在首次使用时就会出现“缓存未命中”​，而不是它的定义。由于遵循ARG指令的所有RUN指令都隐式使用ARG变量（作为环境变量）​，因此可能会导致缓存丢失。除非Dockerfile中有匹配的ARG语句，否则所有预定义的ARG变量都无法使用缓存。例如：
+![](./image/2026-11-07-20-11-05.png)
+如果在命令行上指定--build-arg CONT_IMG_VER=<value>，那么在这两种情况下，第2行的内容不会导致缓存未命中；第3行会导致缓存未命中。如果<value>发生变化，则会得到缓存未命中的消息。
+下面是同一命令行下的另一个示例：
+![](./image/2026-11-07-20-11-30.png)
+在本例中，缓存错误发生在第3行。之所以发生错误，是因为ENV中的变量值引用了ARG变量，并且该变量通过命令行更改。在本例中，ENV指令使最终镜像包含了该值。
+如果ENV指令覆盖了同名的ARG指令，第3行就不会导致缓存丢失：
+![](./image/2026-11-07-20-12-03.png)
+因为CONT_IMG_VER的值是一个常量(hello)。因此，RUN（第4行）指令使用的环境变量和值不会在构建时发生变化。
+### 8.2.22 ONBUILD
+ONBUILD指令用于向镜像添加一个触发指令，当镜像用作另一个构建的基础时执行。语法格式如下：
+![](./image/2026-11-07-20-12-37.png)
+触发器将在下游构建的上下文中执行，就像它在FROM指令之后立即插入一样。任何构建指令都可以注册为触发器。
+读者可以利用ONBUILD构建用作构建其他镜像的基础镜像，例如，应用程序环境或可以支持用户自定义配置的守护进程。
+例如，如果镜像是可重用的Python应用程序构建器，则需要将应用程序源代码添加到特定目录中，并且可能需要在之后调用构建脚本。现在不能只调用ADD和RUN，因为还无法访问应用程序源代码，并且每个应用程序构建都会有所不同。可以简单地为应用程序开发人员提供一个样板Dockerfile，他们直接将其复制粘贴到应用程序中，但这样做效率低下，容易出错，并且难以更新，因为它与特定于应用程序的代码混合在一起。
+解决方案是使用ONBUILD注册钩子指令，以便在下一个构建阶段运行。它的工作原理如下：
+1)当遇到ONBUILD指令时，构建器会向正在构建的镜像元数据添加触发器，该指令不会影响当前构建。
+2)当构建结束时，所有触发器的列表存储在镜像元数据的OnBuild键下，可以通过docker inspect命令进行检查。
+3)当该镜像作为其他镜像的基础镜像被FROM引用时，会触发OnBuild中的触发器，只有触发器中的全部命令都执行成功，FROM指令才会被判定为执行成功，否则镜像构建失败。
+4)触发器在执行后被从最终镜像中清除。
+### 8.2.23 STOPSIGNAL停止信号
+STOPSIGNAL指令通过将给定信号发送到容器来使容器退出，语法格式如下：
+![](./image/2026-11-07-20-14-05.png)
+此信号可以是格式SIG<NAME>中的信号名称，例如SIGKILL，也可以是与内核系统调用表中位置匹配的数字，例如9。如果未定义，默认为SIGTERM。
+镜像的默认停止信号可以在每个容器上实现覆盖，方法是在docker run和dockercreate上使用--stop-signal标志。
+### 8.2.24 HEALTHCHECK
+HEALTHCHECK（健康检查）指令有两种形式：
+❑ HEALTHCHECK[OPTIONS]CMD command，通过在容器内运行命令来检查容器的运行状况。
+❑ HEALTHCHECK NONE，禁用从基础镜像继承的任何健康检查。
+HEALTHCHECK指令告诉Docker如何测试容器，以检查它是否仍在工作。可用于检测诸如Web服务器卡在死循环中无法处理新连接等情况。
+当容器指定了健康检查时，除了正常状态外，它多了一个健康状态。此状态最初为starting。每当健康检查通过时，它都会变成healthy（无论它之前处于什么状态）​。在连续失败一定次数后，它变成unhealthy。
+在CMD之前可以出现的选项是：
+❑ --interval=DURATION（检查间隔，默认为30s）​。
+❑ --timeout=DURATION（检查超时，默认为30s）​。
+❑ --start-period=DURATION（启动检查间隔，默认为0s）​。
+❑ --retries=N（重试次数，默认为3）​。 
+运行状况检查将首先在容器启动后start-period秒运行，然后在每次检查完成后interval秒运行。如果一次检查的时间超过timeout秒，则该检查被视为失败。容器只有在连续检查连续失败后才能被认为是unhealthy。
+start-period为需要时间引导的容器提供了初始化时间。在此期间的探测故障将不计入最大重试次数。但是，如果在start-period期间健康检查成功，则容器被视为已启动，所有连续失败都将被计入最大重试次数。
+Dockerfile中只能有一个HEALTHCHECK指令。如果列出多个，则只有最后一个HEALTH CHECK生效。
+CMD关键字之后的命令可以是shell命令（例如HEALTHCHECK CMD/bin/check-running）或exec数组（与其他Dockerfile指令一样，请参阅ENTRYPOINT）​。
+命令的退出状态指示容器的健康状态。可能的值是：
+❑ 0：成功，容器是健康的、可以使用的。
+❑ 1：不健康，容器不能正常工作。
+❑ 2：保留，不要使用此退出代码。
+例如，每5min左右检查一次网络服务器是否能够在3s内为网站的主页提供服务：
+![](./image/2026-11-07-20-16-06.png)
+为了帮助调试失败的探针，命令执行过程中输出至stdout或stderr的任何文本（UTF-8编码）都将存储在健康状态信息中，并且可以使用docker inspect进行查询。此类输出应保持简短（目前仅存储前4096字节）​。
+当容器的健康状态发生变化时，将以新状态生成一个health_status事件。
+### 8.2.25 SHELL
+SHELL指令允许重写用于shell形式的命令的默认shell，语法格式如下：
+![](./image/2026-11-07-20-17-40.png)
+该指令在Linux上的默认外壳是["/bin/sh","-c"]​，在Windows上是["cmd","/S","/C"]​。SHELL指令必须以JSON形式写在Dockerfile中。
+SHELL指令在Windows上特别有用，其中有两个常用且完全不同的原生shell：cmd和powershell，以及包括sh在内的备用shell。
+SHELL指令可以多次出现。每个SHELL指令都覆盖之前所有的SHELL指令，并影响所有后续指令。例如：
+![](./image/2026-11-07-20-22-33.png)
+当在Dockerfile中使用shell形式时，以下指令可能会受到SHELL指令的影响：RUN、CMD和ENTRYPOINT。
+以下示例是Windows上常见的操作步骤，可以使用SHELL指令进行优化：
+```shell
+RUN powershell -command Execute-MyCmdlet -paraml "c:\foo.txt"
+```
+Docker调用的命令是：
+```shell
+cmd /S /C powershell -command Execute-MyCmdlet -paraml "c:\foo.txt"
+```
+这样做的效率比较低，原因主要有两个：首先，调用了一个不必要的cmd.exe命令处理器；其次，shell表单中的每个RUN指令都需要一个额外的powershell-command作为命令前缀。
+为了提高效率，可以使用两种机制之一。一个是使用RUN指令的JSON形式，例如：
+```shell
+RUN ["powershell","-command","Execute-MyCmdlet","-paraml \"c:\\foo.text|""]
+```
+虽然JSON形式是明确的，并且不使用不必要的cmd.exe，但它需要用到双引号和转义，这增加了理解成本。替代机制是使用SHELL指令和shell形式，为Windows用户提供更自然的语法，特别是当与转义器指令结合使用时：
+![](./image/2026-11-07-20-34-58.png)
+结果如下：
+![](./image/2026-11-07-20-35-52.png)
+SHELL指令也可用于修改shell的运行方式。例如，在Windows上使用SHELLcmd/S/C/V:ON|OFF。
+如果需要用zsh、csh、tcsh等替代shell，也可以在Linux上使用SHELL指令。
+## 8.3 创建镜像
+在Dockerfile编写完毕之后，读者可以使用docker[image]build命令来创建镜像，基本格式为：
+```shell
+docker build [OPTIONS] PATH | URL | -
+``` 
+此命令将读取指定路径（包括子目录）下的Dockerfile，并将该路径下的所有数据作为上下文(Context)发送给Docker服务端。Docker服务端在验证Dockerfile格式无误后，会逐条执行其中定义的指令。当遇到ADD、COPY和RUN指令时，会生成一层新的镜像。最终，若镜像创建成功，系统将返回最终镜像的ID。
+请注意，如果上下文过大，将导致向服务端发送大量数据，从而延长创建过程。因此，除非文件是生成镜像所必需的，否则请勿将其放在上下文路径下。如果需要使用非上下文路径下的Dockerfile，则可以通过-f选项来指定其路径。要为生成的镜像指定标签信息，可以使用-t选项。可以多次使用此选项，以一次性为镜像添加多个名 称。
+例如，若上下文路径为/tmp/docker_builder/，且希望生成的镜像标签为builder/first_image:1.0.0，则可以使用以下命令：
+```shell
+docker build -t builder/first_image:1.0.0 /tmp/docker_builder/
+```
+### 8.3.1 命令选项
+docker[image]build命令支持一系列选项，可以调整创建镜像过程的行为。选项介绍如表8-11所示。
+
+表8-11　选项介绍
+![](./image/2026-11-07-20-42-07.png)
+![](./image/2026-11-07-20-42-21.png)
+### 8.3.2 选择父镜像
+通常生成新的镜像时都需要通过FROM指令来指定父镜像。父镜像是所生成镜像的基础，会直接影响镜像的大小和功能。
+用户可以选择两种镜像作为父镜像，一种是基础镜像(baseimage)，另一种是普通镜像（往往由第三方创建，基于基础镜像）​。
+基础镜像比较特殊，它的Dockerfile中往往不存在FROM指令，或者基于scratch镜像(FROM scratch)，这意味着基础镜像在整个镜像树中处于根的位置。
+下面的Dockerfile定义了一个简单的基础镜像，将用户提前编译好的二进制可执行文件binary复制到镜像中，运行容器时执行binary命令：
+![](./image/2026-11-07-20-43-05.png)
+普通镜像也可以作为父镜像来使用，包括常见的busybox、debian、ubuntu等。
+Docker不同类型镜像之间的继承关系如图8-1所示。
+![](./image/2026-11-07-20-43-38.png)
+图8-1　Docker不同类型镜像之间的继承关系
+### 8.3.3 使用.dockerignore文件
+可以通过.dockerignore文件（每一行添加一条匹配模式）来让Docker忽略匹配路径或文件，避免在创建镜像时将无关数据发送到服务端。例如，下面的示例中包括了6行忽略的模式（第一行为注释）​：
+![](./image/2026-11-07-20-44-35.png)
+.dockerignore文件中的模式语法支持Golang风格的路径匹配规则，其中，​“*”表示任意多个字符；​“?”代表单个字符；​“!”表示不匹配（即不忽略指定的路径或文件）​。
+### 8.3.4 多步骤创建
+Docker支持多步骤镜像创建(Multi-stage build)特性，可以精简最终生成的镜像大小。
+对于需要编译的应用（如C、Go或Java语言等）​，通常情况下至少需要准备两个环境的Docker镜像：
+❑ 编译环境镜像：包括完整的编译引擎、依赖库等，往往比较庞大，作用是将应用编译为二进制文件。
+❑ 运行环境镜像：利用编译好的二进制文件，运行应用，由于不需要编译环境，因此体积比较小。
+使用多步骤创建，可以在保证最终生成的运行环境镜像保持精简的情况下，使用单一的Dockerfile，降低维护复杂度。
+以Go语言应用为例。创建干净目录，进入目录中，创建main.go文件，内容为：
+![](./image/2026-11-07-20-45-22.png)
+创建Dockerfile，使用golang:1.20镜像编译应用二进制文件为app，使用精简的镜像alpine:latest作为运行环境。Dockerfile的完整内容为：
+![](./image/2026-11-07-20-45-40.png)
+执行如下命令创建镜像，并运行应用：
+![](./image/2026-11-07-20-45-59.png)
+查看生成的最终镜像，大小只有6.55MB：
+![](./image/2026-11-07-20-48-29.png)
+## 8.4 最佳实践
+最佳实践的目标是根据需求来定制适合自己并且高效、便捷的镜像。
+首先，读者要深入了解每个指令的含义和执行效果，亲自编写一些简单的示例进行测试，确保充分理解后再编写正式的Dockerfile。此外，Docker Hub官方仓库中提供了大量优秀的镜像和对应的Dockerfile，读者可以通过阅读它们来学习如何编写高效的Dockerfile。
+下面是一些构建镜像的经验。读者在生成镜像的过程中可以参考借鉴，以完善所生成的镜像。
+❑ 精简镜像用途：尽量让每个镜像的用途都比较集中、单一，避免构造庞大而复杂的多功能镜像。
+❑ 选择合适的基础镜像：容器的核心是应用。选择过大的父镜像（如Ubuntu系统镜像）会造成最终生成应用镜像的臃肿，通常建议选用精简的应用镜像（如node:slim）​，或者较为轻量级的系统镜像（如alpine、busybox或debian）​。
+❑ 提供注释和维护者信息：Dockerfile也是一种代码，需要考虑方便后续扩展和他人使用。
+❑ 正确使用版本号：使用明确的版本号信息，如1.0、2.0，而非依赖于默认的latest。通过版本号可以避免环境不一致导致的问题。
+❑ 减少镜像层数：为了生成尽量少的镜像层数，可以尝试合并RUN、ADD和COPY指令。通常情况下，多条RUN指令可以合并为一条RUN指令。❑ 恰当使用多步骤创建（17.05+版本支持）​：通过多步骤创建，可以将编译和运行过程分开，确保最终生成的镜像仅包含运行应用所需的最小化环境。当然，读者也可以分别构建编译镜像和运行镜像来达到类似的效果，但这种方式需要维护多个Dockerfile。
+❑ 使用.dockerignore文件：利用该文件可以标记在执行docker build时忽略的路径和文件，避免发送不必要的数据内容，从而加快整个镜像的创建过程。❑ 及时删除临时文件和缓存文件：例如在执行apt-get指令后，/var/cache/apt目录下可能会缓存一些安装包，需要及时清理。❑ 提高生成速度：例如，合理使用缓存、减少内容目录下的文件，或使用.dockerignore文件指定等，以加快镜像创建速度。
+❑ 调整合理的指令顺序：在开启缓存的情况下，内容不变的指令尽量放在前面，以便最大限度地复用缓存。
+❑ 减少外部源的干扰：如果确实需要从外部引入数据，则务必指定持久且带版本信息的地址，以便其他人能够重复使用而不会出错。
+遵循这些最佳实践，读者将能够创建出高效、易于维护和使用的Docker镜像，从而优化容器部署和应用管理过程。
+## 8.5 本章小结
+本章重点讲解使用Dockerfile创建镜像的整个过程。内容包括Dockerfile的基本结构、支持的内部指令、使用Dockerfile创建镜像的基本流程，以及合理构建镜像的最佳实践。
+通过学习Dockerfile构建镜像的过程，读者将能领略到Docker镜像在使用中所展现的灵活性，尤其是在进行修改时，能够实现“一处修改，全局更新”​。
+然而，编写一个高质量的Dockerfile并非易事，这需要不断地进行学习和实践。
+在本书的第二部分，笔者精选了多个具有代表性的Dockerfile实例，帮助读者更好地理解镜像构建原理并参考实例进行实践。
