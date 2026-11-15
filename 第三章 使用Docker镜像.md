@@ -29,7 +29,7 @@ Status:Downloaded newer image for ubuntu:latest
 读者可能会关心一个问题：在不同的镜像仓库服务器上，是否会出现镜像重名的情况？
 事实上，镜像的仓库名称应当包含仓库地址（registry，即注册服务器）作为前缀。然而，由于默认使用的是官方的Docker Hub服务，该前缀可以省略。
 举个例子，docker pull ubuntu:24.04命令实际上等同于docker pull registry.hub.docker.com/ubuntu:24.04 命令。这表示从默认的注册服务器Docker Hub Registry中的Ubuntu仓库下载了一个标记为24.04的镜像。
-如果从非官方的仓库下载，则需要在仓库名称前指定完整的仓库地址。例如，从quay.io源来下载influxdb:v2.2.0镜像，可以使用如下命令，此时下载的镜像名称为quay.io/influxdb/influxdb:v2.2.0：
+如果从非官方的仓库下载，则需要在仓库名称前指定完整的仓库地址。例如，从quay.io源来下载influxdb:v2.2.0镜像，可以使用如下命令，此时下载的镜像名称为 quay.io/influxdb/influxdb:v2.2.0 ：
 ```shell
 docker pull quay.io/influxdb/influxdb:v2.2.0
 v2.2.0:Pulling from influxdb/infulxdb
