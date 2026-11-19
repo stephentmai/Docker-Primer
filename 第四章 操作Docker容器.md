@@ -125,7 +125,9 @@ docker attach [--detach-keys[=[]]] [--o-stdin] [--sig-proxy[=true]] CONTAINER
 然而使用attach命令有时并不方便。当多个窗口同时进入同一个容器的时候，所有窗口都会同步显示。当某个窗口因命令而发生阻塞时，其他窗口也无法执行操作了。
 **2.exec命令**
 从Docker1.3.0版本起，可以直接使用exec命令在运行中的容器内执行给定指令。该命令的基本格式为：
-![](./image/2026-11-05-20-06-48.png)
+```shell
+    docker exec [-d|--detach] [--detach-key[=[]]] [-i|--interactive] [--privileged] [-t|--tty] [-u|--user[=USER]] CONTAINER COMMAND [ARG...]
+```
 比较重要的参数有：
 ❑ -d,--detach：在容器中的后台执行命令。
 ❑ --detach-keys=""：指定将容器切回后台的按键。
